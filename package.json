@@ -1,0 +1,21 @@
+{
+  "name": "whatsapp-otp-gateway",
+  "version": "1.0.0",
+  "description": "Baileys দিয়ে বানানো general-purpose WhatsApp মেসেজ গেটওয়ে (OTP, নোটিফিকেশন, রিমাইন্ডার — যেকোনো কিছু), API key দিয়ে সুরক্ষিত, session Supabase-এ persist হয়",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@supabase/supabase-js": "^2.45.0",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pino": "^9.4.0",
+    "qrcode": "^1.5.3"
+  }
+}
