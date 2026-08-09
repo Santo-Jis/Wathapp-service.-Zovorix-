@@ -101,9 +101,26 @@ async function sendWhatsAppMessage(phone, message) {
   return sock.sendMessage(jid, { text: message });
 }
 
+// PDF/ছবির মতো ফাইল (base64) কে WhatsApp ডকুমেন্ট হিসেবে পাঠায় — যেমন ইনভয়েস PDF।
+// কোনো Puppeteer/হেডলেস ব্রাউজার লাগে না, তাই ফ্রি-টায়ারের সীমিত RAM-এও নিরাপদ।
+async function sendWhatsAppDocument(phone, base64Data, fileName, caption) {
+  if (!sock) {
+    throw new Error('WhatsApp socket এখনো initialize হয়নি');
+  }
+  const jid = normalizePhoneToJid(phone);
+  const buffer = Buffer.from(base64Data, 'base64');
+  return sock.sendMessage(jid, {
+    document: buffer,
+    fileName: fileName || 'document.pdf',
+    mimetype: 'application/pdf',
+    ...(caption ? { caption } : {}),
+  });
+}
+
 module.exports = {
   connectToWhatsApp,
   getStatus,
   getLatestQR,
   sendWhatsAppMessage,
+  sendWhatsAppDocument,
 };
