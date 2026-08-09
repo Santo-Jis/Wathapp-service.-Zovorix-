@@ -63,11 +63,21 @@ app.get('/qr', requireApiKey, async (req, res) => {
   }
   const qr = getLatestQR();
   if (!qr) {
-    return res.send('<h2>QR এখনো তৈরি হয়নি, কয়েক সেকেন্ড পর রিফ্রেশ করুন</h2>');
+    return res.send(
+      '<meta http-equiv="refresh" content="3"><h2>QR এখনো তৈরি হয়নি, কয়েক সেকেন্ড পর রিফ্রেশ করুন</h2>'
+    );
   }
   const dataUrl = await QRCode.toDataURL(qr);
+  // Baileys প্রতি ~২০ সেকেন্ডে QR পাল্টে ফেলে — পেজ নিজে থেকে রিফ্রেশ না হলে
+  // ততক্ষণে পুরনো/মৃত QR স্ক্যান হয়ে যায়, WhatsApp তখন লিংক না করে স্ক্যান পেজে ফেরত পাঠায়।
+  // তাই ১৫ সেকেন্ড পরপর অটো-রিফ্রেশ যোগ করা হলো, QR সবসময় সতেজ থাকবে।
   res.send(
-    `<div style="text-align:center;font-family:sans-serif"><h3>WhatsApp থেকে (Linked Devices) স্ক্যান করুন</h3><img src="${dataUrl}" /></div>`
+    `<meta http-equiv="refresh" content="15">
+<div style="text-align:center;font-family:sans-serif">
+  <h3>WhatsApp থেকে (Linked Devices) স্ক্যান করুন</h3>
+  <img src="${dataUrl}" />
+  <p style="color:#888">QR প্রতি ১৫ সেকেন্ডে অটো-রিফ্রেশ হয় — দেরি না করে স্ক্যান করুন</p>
+</div>`
   );
 });
 
