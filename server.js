@@ -6,10 +6,12 @@ const {
   getStatus,
   getLatestQR,
   sendWhatsAppMessage,
+  sendWhatsAppDocument,
 } = require('./whatsapp');
 
 const app = express();
-app.use(express.json());
+// ডিফল্ট 100kb limit base64 PDF-এর জন্য যথেষ্ট না, তাই বাড়ানো হলো
+app.use(express.json({ limit: '10mb' }));
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY;
@@ -95,6 +97,35 @@ app.post('/send-message', requireApiKey, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error(`❌ [${label}] পাঠাতে ব্যর্থ → ${phone}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// মূল App/Web থেকে PDF (যেমন ইনভয়েস) base64 আকারে পাঠালে সেটা WhatsApp ডকুমেন্ট হিসেবে ফরওয়ার্ড করে —
+// কোনো Puppeteer/স্ক্রিনশট নেই, তাই ছোট আর হালকা; ফ্রি-টায়ারের 512MB RAM-এ নিরাপদে চলে
+app.post('/send-document', requireApiKey, async (req, res) => {
+  const { phone, base64Data, fileName, caption, type } = req.body || {};
+  const label = type || 'document';
+
+  if (!phone || !base64Data) {
+    return res.status(400).json({ error: 'phone এবং base64Data দুটোই আবশ্যক' });
+  }
+
+  if (getStatus() !== 'connected') {
+    return res.status(503).json({ error: 'WhatsApp এখনো কানেক্টেড না — /qr চেক করুন' });
+  }
+
+  if (!checkRateLimit()) {
+    console.warn(`⚠️ Rate limit ছুঁয়ে ফেলেছে (${RATE_LIMIT_MAX}/মিনিট) — রিকোয়েস্ট রিজেক্ট হলো [${label}] → ${phone}`);
+    return res.status(429).json({ error: 'অনেক বেশি রিকোয়েস্ট আসছে, একটু পর আবার চেষ্টা করুন' });
+  }
+
+  try {
+    await sendWhatsAppDocument(phone, base64Data, fileName, caption);
+    console.log(`✅ [${label}] ডকুমেন্ট পাঠানো হয়েছে → ${phone}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`❌ [${label}] ডকুমেন্ট পাঠাতে ব্যর্থ → ${phone}:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
