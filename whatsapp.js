@@ -15,66 +15,77 @@ let latestQR = null;
 let authHandle = null; // saveCreds/clearSession রাখার জন্য, disconnect হ্যান্ডলারে দরকার হয়
 
 async function connectToWhatsApp() {
-  authHandle = await useSupabaseAuthState(
-    process.env.DATABASE_URL,
-    process.env.WHATSAPP_SESSION_ID || 'main'
-  );
-  const { state, saveCreds } = authHandle;
-
-  // সর্বশেষ WhatsApp Web প্রোটোকল ভার্সন জানার চেষ্টা করা হয়, না পেলে Baileys-এর ডিফল্ট ভার্সন ব্যবহার হবে
-  let version;
+  // ⚠️ FIX: আগে এই পুরো ফাংশনের কোনো try/catch ছিল না, এবং server.js থেকে এটাকে
+  // await/catch ছাড়াই কল করা হয় (fire-and-forget)। তাই Supabase pool exhaustion-এর
+  // মতো যেকোনো error এখানে ছুঁড়লে সেটা unhandled promise rejection হয়ে পুরো Node
+  // process-কে crash করাতো (Render লগে "Node.js v26.7.0" এর পর restart)। এখন error
+  // ধরে শুধু retry করা হয়, প্রসেস আর crash করবে না।
   try {
-    version = (await fetchLatestBaileysVersion()).version;
-  } catch (e) {
-    console.warn('সর্বশেষ WhatsApp ভার্সন জানা যায়নি, ডিফল্ট ভার্সন দিয়ে চেষ্টা হচ্ছে।');
-  }
+    authHandle = await useSupabaseAuthState(
+      process.env.DATABASE_URL,
+      process.env.WHATSAPP_SESSION_ID || 'main'
+    );
+    const { state, saveCreds } = authHandle;
 
-  sock = makeWASocket({
-    auth: state,
-    logger,
-    printQRInTerminal: false,
-    browser: ['OTP Gateway', 'Chrome', '1.0.0'],
-    ...(version ? { version } : {}),
-  });
-
-  // নতুন session key তৈরি হলেই Supabase-এ সেভ হবে
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      latestQR = qr;
-      connectionStatus = 'need_qr';
-      console.log('নতুন QR কোড তৈরি হয়েছে — /qr এন্ডপয়েন্টে গিয়ে স্ক্যান করুন');
+    // সর্বশেষ WhatsApp Web প্রোটোকল ভার্সন জানার চেষ্টা করা হয়, না পেলে Baileys-এর ডিফল্ট ভার্সন ব্যবহার হবে
+    let version;
+    try {
+      version = (await fetchLatestBaileysVersion()).version;
+    } catch (e) {
+      console.warn('সর্বশেষ WhatsApp ভার্সন জানা যায়নি, ডিফল্ট ভার্সন দিয়ে চেষ্টা হচ্ছে।');
     }
 
-    if (connection === 'close') {
-      connectionStatus = 'disconnected';
-      const statusCode =
-        lastDisconnect?.error instanceof Boom
-          ? lastDisconnect.error.output?.statusCode
-          : null;
-      const loggedOut = statusCode === DisconnectReason.loggedOut;
+    sock = makeWASocket({
+      auth: state,
+      logger,
+      printQRInTerminal: false,
+      browser: ['OTP Gateway', 'Chrome', '1.0.0'],
+      ...(version ? { version } : {}),
+    });
 
-      if (loggedOut) {
-        console.log(
-          '❌ WhatsApp থেকে logged out করা হয়েছে। Supabase-এ থাকা পুরনো session সাফ করে নতুন QR তৈরি করা হচ্ছে।'
-        );
-        if (authHandle?.clearSession) await authHandle.clearSession();
-        setTimeout(connectToWhatsApp, 1000);
-      } else {
-        console.log('⚠️ কানেকশন বিচ্ছিন্ন হয়েছে, ৩ সেকেন্ড পর আবার চেষ্টা হচ্ছে...');
-        setTimeout(connectToWhatsApp, 3000);
+    // নতুন session key তৈরি হলেই Supabase-এ সেভ হবে
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        latestQR = qr;
+        connectionStatus = 'need_qr';
+        console.log('নতুন QR কোড তৈরি হয়েছে — /qr এন্ডপয়েন্টে গিয়ে স্ক্যান করুন');
       }
-    } else if (connection === 'open') {
-      connectionStatus = 'connected';
-      latestQR = null;
-      console.log('✅ WhatsApp কানেক্টেড এবং মেসেজ পাঠানোর জন্য প্রস্তুত (session Supabase-এ সেভ আছে)');
-    }
-  });
 
-  return sock;
+      if (connection === 'close') {
+        connectionStatus = 'disconnected';
+        const statusCode =
+          lastDisconnect?.error instanceof Boom
+            ? lastDisconnect.error.output?.statusCode
+            : null;
+        const loggedOut = statusCode === DisconnectReason.loggedOut;
+
+        if (loggedOut) {
+          console.log(
+            '❌ WhatsApp থেকে logged out করা হয়েছে। Supabase-এ থাকা পুরনো session সাফ করে নতুন QR তৈরি করা হচ্ছে।'
+          );
+          if (authHandle?.clearSession) await authHandle.clearSession();
+          setTimeout(connectToWhatsApp, 1000);
+        } else {
+          console.log('⚠️ কানেকশন বিচ্ছিন্ন হয়েছে, ৩ সেকেন্ড পর আবার চেষ্টা হচ্ছে...');
+          setTimeout(connectToWhatsApp, 3000);
+        }
+      } else if (connection === 'open') {
+        connectionStatus = 'connected';
+        latestQR = null;
+        console.log('✅ WhatsApp কানেক্টেড এবং মেসেজ পাঠানোর জন্য প্রস্তুত (session Supabase-এ সেভ আছে)');
+      }
+    });
+
+    return sock;
+  } catch (err) {
+    connectionStatus = 'disconnected';
+    console.error('❌ connectToWhatsApp ব্যর্থ হয়েছে, প্রসেস crash না করে ৫ সেকেন্ড পর আবার চেষ্টা হচ্ছে:', err.message);
+    setTimeout(connectToWhatsApp, 5000);
+  }
 }
 
 function getStatus() {
