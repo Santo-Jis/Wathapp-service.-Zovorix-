@@ -16,8 +16,7 @@ let authHandle = null; // saveCreds/clearSession রাখার জন্য, d
 
 async function connectToWhatsApp() {
   authHandle = await useSupabaseAuthState(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY,
+    process.env.DATABASE_URL,
     process.env.WHATSAPP_SESSION_ID || 'main'
   );
   const { state, saveCreds } = authHandle;
