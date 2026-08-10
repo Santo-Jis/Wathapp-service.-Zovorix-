@@ -7,6 +7,7 @@ const {
   getLatestQR,
   sendWhatsAppMessage,
   sendWhatsAppDocument,
+  sendWhatsAppImage,
 } = require('./whatsapp');
 
 const app = express();
@@ -136,6 +137,35 @@ app.post('/send-document', requireApiKey, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error(`❌ [${label}] ডকুমেন্ট পাঠাতে ব্যর্থ → ${phone}:`, err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// মূল App/Web থেকে ছবি (যেমন ইনভয়েস ছবি, রিসিট, প্রোডাক্ট ফটো) base64 আকারে পাঠালে
+// সেটা WhatsApp-এ সরাসরি ছবি হিসেবে ফরওয়ার্ড করে (ডকুমেন্ট না — চ্যাটে থাম্বনেইল দেখাবে)
+app.post('/send-image', requireApiKey, async (req, res) => {
+  const { phone, base64Data, caption, mimetype, type } = req.body || {};
+  const label = type || 'image';
+
+  if (!phone || !base64Data) {
+    return res.status(400).json({ error: 'phone এবং base64Data দুটোই আবশ্যক' });
+  }
+
+  if (getStatus() !== 'connected') {
+    return res.status(503).json({ error: 'WhatsApp এখনো কানেক্টেড না — /qr চেক করুন' });
+  }
+
+  if (!checkRateLimit()) {
+    console.warn(`⚠️ Rate limit ছুঁয়ে ফেলেছে (${RATE_LIMIT_MAX}/মিনিট) — রিকোয়েস্ট রিজেক্ট হলো [${label}] → ${phone}`);
+    return res.status(429).json({ error: 'অনেক বেশি রিকোয়েস্ট আসছে, একটু পর আবার চেষ্টা করুন' });
+  }
+
+  try {
+    await sendWhatsAppImage(phone, base64Data, caption, mimetype);
+    console.log(`✅ [${label}] ছবি পাঠানো হয়েছে → ${phone}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`❌ [${label}] ছবি পাঠাতে ব্যর্থ → ${phone}:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
