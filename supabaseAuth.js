@@ -15,6 +15,11 @@ async function useSupabaseAuthState(connectionString, sessionId = 'main') {
   const pool = new Pool({
     connectionString,
     ssl: { rejectUnauthorized: false },
+    // এই সার্ভিসের কোয়েরি খুবই কম (শুধু session save/load) — Novatech-BD একই
+    // ডাটাবেসের connection pool শেয়ার করে (মোট মাত্র ১৫টা), তাই pool ছোট রাখা হলো
+    // যাতে Novatech-BD-র জন্য জায়গা কমে না যায়
+    max: 2,
+    idleTimeoutMillis: 10000,
   });
 
   // টেবিল না থাকলে বানিয়ে নেয় (idempotent, নিরাপদ — আগে থেকে থাকলে কিছু হয় না)
