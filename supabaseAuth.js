@@ -3,16 +3,17 @@ const { BufferJSON, initAuthCreds, proto } = require('@whiskeysockets/baileys');
 
 const TABLE = 'baileys_auth_state';
 
-// Baileys auth state (creds + signal keys) সরাসরি Postgres-এ persist করে —
-// Supabase-এর REST API (PostgREST) এড়িয়ে সরাসরি ডাটাবেসে কানেক্ট করা হয়, তাই
-// PostgREST layer-এ কোনো সমস্যা হলেও এটা প্রভাবিত হবে না।
-// server restart/redeploy হলেও session টিকে থাকে, তাই বারবার QR স্ক্যান লাগে না।
-async function useSupabaseAuthState(connectionString, sessionId = 'main') {
-  if (!connectionString) {
-    throw new Error('DATABASE_URL .env এ সেট থাকতে হবে (Supabase Session Pooler connection string)');
-  }
+// ⚠️ FIX: pool আগে useSupabaseAuthState() কল হওয়ার প্রতিবার নতুন করে বানানো হতো এবং
+// কখনো close হতো না — প্রতিটা reconnect/QR-refresh এ ২টা করে কানেকশন Supabase-এর
+// session pooler-এ জমে থাকতো, যতক্ষণ না ১৫টার লিমিট (EMAXCONNSESSION) শেষ হয়ে
+// পুরো অ্যাপ crash করতো। এখন pool মডিউল-লেভেলে একবারই বানানো হয় এবং reuse হয়।
+let pool = null;
+let tableReady = null;
 
-  const pool = new Pool({
+function getPool(connectionString) {
+  if (pool) return pool;
+
+  pool = new Pool({
     connectionString,
     ssl: { rejectUnauthorized: false },
     // এই সার্ভিসের কোয়েরি খুবই কম (শুধু session save/load) — Novatech-BD একই
@@ -22,16 +23,41 @@ async function useSupabaseAuthState(connectionString, sessionId = 'main') {
     idleTimeoutMillis: 10000,
   });
 
-  // টেবিল না থাকলে বানিয়ে নেয় (idempotent, নিরাপদ — আগে থেকে থাকলে কিছু হয় না)
-  await pool.query(`
-    create table if not exists ${TABLE} (
-      session_id text not null,
-      key text not null,
-      value text,
-      updated_at timestamptz default now(),
-      primary key (session_id, key)
-    )
-  `);
+  // ⚠️ FIX: pool-এর idle client-এ network-level error (যেমন Supabase কানেকশন ড্রপ
+  // করে দিলে) আসলে node-postgres 'error' event emit করে — এটা না শুনলে গোটা Node
+  // process uncaught exception দিয়ে crash করে। তাই এখানে অবশ্যই শুনতে হবে।
+  pool.on('error', (err) => {
+    console.error('Postgres pool-এ আনএক্সপেক্টেড এরর (process চলতে থাকবে):', err.message);
+  });
+
+  return pool;
+}
+
+// Baileys auth state (creds + signal keys) সরাসরি Postgres-এ persist করে —
+// Supabase-এর REST API (PostgREST) এড়িয়ে সরাসরি ডাটাবেসে কানেক্ট করা হয়, তাই
+// PostgREST layer-এ কোনো সমস্যা হলেও এটা প্রভাবিত হবে না।
+// server restart/redeploy হলেও session টিকে থাকে, তাই বারবার QR স্ক্যান লাগে না।
+async function useSupabaseAuthState(connectionString, sessionId = 'main') {
+  if (!connectionString) {
+    throw new Error('DATABASE_URL .env এ সেট থাকতে হবে (Supabase Session Pooler connection string)');
+  }
+
+  const pool = getPool(connectionString);
+
+  // ⚠️ FIX: টেবিল তৈরির কোয়েরি আগে প্রতিটা reconnect-এ চলতো (extra roundtrip) —
+  // এখন প্রসেসের লাইফটাইমে একবারই চলে।
+  if (!tableReady) {
+    tableReady = pool.query(`
+      create table if not exists ${TABLE} (
+        session_id text not null,
+        key text not null,
+        value text,
+        updated_at timestamptz default now(),
+        primary key (session_id, key)
+      )
+    `);
+  }
+  await tableReady;
 
   const writeData = async (data, key) => {
     const value = JSON.stringify(data, BufferJSON.replacer);
