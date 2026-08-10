@@ -116,10 +116,26 @@ async function sendWhatsAppDocument(phone, base64Data, fileName, caption) {
   });
 }
 
+// ছবি (base64) কে WhatsApp ইমেজ মেসেজ হিসেবে পাঠায় — ইনভয়েস/রিসিট ছবি, প্রোডাক্ট ফটো ইত্যাদির জন্য।
+// ডকুমেন্টের বদলে ছবি হিসেবে দেখাবে (চ্যাটেই থাম্বনেইল/প্রিভিউ দেখা যায়)।
+async function sendWhatsAppImage(phone, base64Data, caption, mimetype) {
+  if (!sock) {
+    throw new Error('WhatsApp socket এখনো initialize হয়নি');
+  }
+  const jid = normalizePhoneToJid(phone);
+  const buffer = Buffer.from(base64Data, 'base64');
+  return sock.sendMessage(jid, {
+    image: buffer,
+    mimetype: mimetype || 'image/jpeg',
+    ...(caption ? { caption } : {}),
+  });
+}
+
 module.exports = {
   connectToWhatsApp,
   getStatus,
   getLatestQR,
   sendWhatsAppMessage,
   sendWhatsAppDocument,
+  sendWhatsAppImage,
 };
